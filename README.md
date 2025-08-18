@@ -76,7 +76,3 @@ We welcome contributions! This project is open source to ensure transparency and
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-**Made with <3 by Michael Sieminski**
