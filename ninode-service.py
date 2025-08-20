@@ -89,7 +89,7 @@ async def register_with_server(config: Config) -> bool:
         "Content-Type": "application/json",
     }
 
-    registration_url = f"{config.server_url.rstrip('/')}/api/agent/register"
+    registration_url = f"{config.server_url.rstrip('/')}/api/v1/service/register"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
