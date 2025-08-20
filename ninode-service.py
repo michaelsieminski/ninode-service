@@ -68,7 +68,7 @@ async def get_system_info() -> Dict[str, Any]:
 
     return {
         "status": "online",
-        "version": "0.1.0",
+        "version": CURRENT_VERSION,
         "hostname": hostname,
         "platform": {
             "system": platform.system(),
@@ -119,7 +119,7 @@ async def register_with_server(config: Config) -> bool:
 
 
 # Auto-update functionality
-CURRENT_VERSION = "0.1.0"
+CURRENT_VERSION = "0.1.2"
 UPDATE_CHECK_INTERVAL = 24 * 3600  # 24 hours in seconds
 
 
@@ -164,8 +164,8 @@ async def download_and_replace_script(version: str) -> bool:
 
                 print(f"Updated to version {version}. Restarting...")
 
-                # Restart the service
-                subprocess.run(["systemctl", "restart", "ninode"], check=False)
+                # Schedule restart after response is sent
+                asyncio.create_task(restart_service_delayed())
                 return True
     except Exception as e:
         print(f"Update failed: {e}")
@@ -174,6 +174,15 @@ async def download_and_replace_script(version: str) -> bool:
         if os.path.exists(backup_path):
             shutil.copy2(backup_path, os.path.abspath(__file__))
     return False
+
+
+async def restart_service_delayed():
+    """Restart the service after a short delay to allow response to be sent"""
+    await asyncio.sleep(2)  # Wait 2 seconds
+    try:
+        subprocess.run(["systemctl", "restart", "ninode"], check=False)
+    except Exception as e:
+        print(f"Failed to restart service: {e}")
 
 
 async def auto_update_task(config: Config):
@@ -257,7 +266,7 @@ def create_app(config: Config) -> FastAPI:
     app = FastAPI(
         title="Ninode Service Agent",
         description="FastAPI service for VPS management and monitoring",
-        version="0.1.0",
+        version=CURRENT_VERSION,
         lifespan=lifespan,
     )
 
