@@ -1,82 +1,67 @@
 # Ninode Service
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.12+-blue.svg) ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-green.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.8+-blue.svg) ![FastAPI](https://img.shields.io/badge/FastAPI-latest-green.svg)
 
-**Ninode Service** is the connector service that runs on your VPS servers when using Ninode. It acts as an intelligent bridge between the Ninode Web App and your server infrastructure, providing automated server management, monitoring, and maintenance through natural language interactions.
+**Ninode Service** is a lightweight FastAPI-based agent that runs on your VPS servers, enabling secure communication with the Ninode web application for automated server management and monitoring.
 
 ## What is Ninode?
 
-Ninode is your AI-powered system administrator that connects to your VPS and manages it through simple chat. Set up services, secure your server, deploy apps, and automate tasks with ease. Add monitors and let Ninode proactively fix issues - all without touching the command line.
+Ninode is your AI-powered system administrator that connects to your VPS and manages it through simple chat. Set up services, secure your server, deploy apps, and automate tasks with ease.
+
+## Installation
+
+Install on your VPS with a single command:
+
+```bash
+curl -sSL https://app.ninode.com/install.sh | bash -s -- YOUR_API_KEY
+```
 
 ## Features
 
-- **AI-Powered Management**: Communicate with your server using natural language
-- **Secure Communication**: End-to-end encrypted communication with the Ninode Web App
-- **Real-time Monitoring**: Proactive system monitoring and issue detection
-- **Service Management**: Automated deployment, configuration, and maintenance
-- **MCP Server**: Provides Model Context Protocol server for AI interactions
-- **Resource Tracking**: Monitor CPU, memory, disk usage, and performance metrics
-- **Alert System**: Intelligent alerting and automated issue resolution
+- **Lightweight**: Single Python file, minimal dependencies
+- **Secure**: Bearer token authentication, command whitelist
+- **Automatic Registration**: Registers with Ninode web app on startup
+- **System Monitoring**: CPU, memory, disk metrics
+- **Safe Command Execution**: Only allows read-only system commands
 - **Multi-Platform**: Supports major Linux distributions
-- **Open Source**: Fully transparent - no hidden backdoors or secret functionality
+
+## API Endpoints
+
+- `GET /health` - Health check (no auth)
+- `GET /status` - System status (auth required)
+- `GET /metrics` - System metrics (auth required)
+- `POST /execute` - Execute whitelisted commands (auth required)
+
+## Configuration
+
+Service reads configuration from `/opt/ninode/config.json`:
+
+```json
+{
+  "api_key": "your-api-key-here",
+  "server_url": "https://app.ninode.com",
+  "port": 6969,
+  "host": "0.0.0.0"
+}
+```
 
 ## Development
 
-### Setup Development Environment
-
 ```bash
-# Clone and enter directory
+# Clone repository
 git clone https://github.com/michaelsieminski/ninode-service.git
 cd ninode-service
 
-# Install with development dependencies
-uv sync --dev
+# Run service locally (requires config.json)
+python3 ninode-service.py
 
-# Or with pip
-pip install -e ".[dev]"
-```
-
-### Code Quality
-
-We use Ruff for linting and formatting:
-
-```bash
 # Format code
-uv run ruff format
+ruff format ninode-service.py
 
 # Lint code
-uv run ruff check
-
-# Fix linting issues
-uv run ruff check --fix
+ruff check ninode-service.py
 ```
-
-### Testing
-
-```bash
-# Run tests
-uv run pytest
-
-# Run tests with coverage
-uv run pytest --cov=ninode_service
-```
-
-## Contributing
-
-We welcome contributions! This project is open source to ensure transparency and community involvement.
-
-### Development Guidelines
-
-- Follow the existing code style and conventions
-- Write tests for new features and bug fixes
-- Update documentation for any API changes
-- Ensure all CI checks pass
-- Be respectful and constructive in discussions
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-**Made with <3 by Michael Sieminski**
+MIT License - see [LICENSE](LICENSE) file for details.
