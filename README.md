@@ -21,16 +21,10 @@ curl -sSL https://app.ninode.com/install.sh | bash -s -- YOUR_API_KEY
 - **Lightweight**: Single Python file, minimal dependencies
 - **Secure**: Bearer token authentication, command whitelist
 - **Automatic Registration**: Registers with Ninode web app on startup
+- **Auto-Update**: Automatically updates to latest version from GitHub
 - **System Monitoring**: CPU, memory, disk metrics
 - **Safe Command Execution**: Only allows read-only system commands
 - **Multi-Platform**: Supports major Linux distributions
-
-## API Endpoints
-
-- `GET /health` - Health check (no auth)
-- `GET /status` - System status (auth required)
-- `GET /metrics` - System metrics (auth required)
-- `POST /execute` - Execute whitelisted commands (auth required)
 
 ## Configuration
 
@@ -41,7 +35,9 @@ Service reads configuration from `/opt/ninode/config.json`:
   "api_key": "your-api-key-here",
   "server_url": "https://app.ninode.com",
   "port": 6969,
-  "host": "0.0.0.0"
+  "host": "0.0.0.0",
+  "update_interval_hours": 24,
+  "enable_auto_update": true
 }
 ```
 

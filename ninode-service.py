@@ -11,6 +11,8 @@ import shutil
 import socket
 import subprocess
 import sys
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -27,6 +29,12 @@ class Config(BaseModel):
     server_url: str = Field(..., description="URL of Ninode application")
     port: int = Field(default=6969, description="Service port")
     host: str = Field(default="0.0.0.0", description="Bind address")
+    update_interval_hours: int = Field(
+        default=24, description="Hours between auto-update checks"
+    )
+    enable_auto_update: bool = Field(
+        default=True, description="Enable automatic updates"
+    )
 
 
 def load_config(config_path: Optional[str] = None) -> Config:
@@ -110,6 +118,84 @@ async def register_with_server(config: Config) -> bool:
             return False
 
 
+# Auto-update functionality
+CURRENT_VERSION = "0.1.0"
+UPDATE_CHECK_INTERVAL = 24 * 3600  # 24 hours in seconds
+
+
+async def check_for_updates() -> Optional[str]:
+    """Check GitHub for latest release version"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://api.github.com/repos/michaelsieminski/ninode-service/releases/latest"
+            )
+            if response.status_code == 200:
+                release_data = response.json()
+                latest_version = release_data["tag_name"].lstrip("v")
+                if latest_version != CURRENT_VERSION:
+                    return latest_version
+    except Exception as e:
+        print(f"Failed to check for updates: {e}")
+    return None
+
+
+async def download_and_replace_script(version: str) -> bool:
+    """Download new version and replace current script"""
+    try:
+        script_path = os.path.abspath(__file__)
+        backup_path = f"{script_path}.backup"
+
+        # Download new version
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"https://raw.githubusercontent.com/michaelsieminski/ninode-service/v{version}/ninode-service.py"
+            )
+            if response.status_code == 200:
+                # Create backup
+                shutil.copy2(script_path, backup_path)
+
+                # Write new version
+                with open(script_path, "w") as f:
+                    f.write(response.text)
+
+                # Make executable
+                os.chmod(script_path, 0o755)
+
+                print(f"Updated to version {version}. Restarting...")
+
+                # Restart the service
+                subprocess.run(["systemctl", "restart", "ninode"], check=False)
+                return True
+    except Exception as e:
+        print(f"Update failed: {e}")
+        # Restore backup if it exists
+        backup_path = f"{os.path.abspath(__file__)}.backup"
+        if os.path.exists(backup_path):
+            shutil.copy2(backup_path, os.path.abspath(__file__))
+    return False
+
+
+async def auto_update_task(config: Config):
+    """Background task to check for updates periodically"""
+    if not config.enable_auto_update:
+        print("Auto-update disabled in configuration")
+        return
+
+    interval_seconds = config.update_interval_hours * 3600
+    print(f"Auto-update enabled: checking every {config.update_interval_hours} hours")
+
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            latest_version = await check_for_updates()
+            if latest_version:
+                print(f"New version {latest_version} available. Updating...")
+                await download_and_replace_script(latest_version)
+        except Exception as e:
+            print(f"Auto-update task error: {e}")
+
+
 # FastAPI Models
 class CommandRequest(BaseModel):
     command: str
@@ -146,10 +232,33 @@ ALLOWED_COMMANDS = {
 
 
 def create_app(config: Config) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # Startup
+        print("Starting Ninode Service Agent...")
+        success = await register_with_server(config)
+        if success:
+            print("Successfully registered with Ninode application")
+        else:
+            print("Failed to register with Ninode application")
+
+        # Start auto-update task
+        update_task = asyncio.create_task(auto_update_task(config))
+
+        yield
+
+        # Shutdown - cancel auto-update task
+        update_task.cancel()
+        try:
+            await update_task
+        except asyncio.CancelledError:
+            pass
+
     app = FastAPI(
         title="Ninode Service Agent",
         description="FastAPI service for VPS management and monitoring",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     async def verify_token(
@@ -162,15 +271,6 @@ def create_app(config: Config) -> FastAPI:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return credentials.credentials
-
-    @app.on_event("startup")
-    async def startup_event():
-        print("Starting Ninode Service Agent...")
-        success = await register_with_server(config)
-        if success:
-            print("Successfully registered with Ninode application")
-        else:
-            print("Failed to register with Ninode application")
 
     @app.get("/health")
     async def health_check():
@@ -263,6 +363,29 @@ def create_app(config: Config) -> FastAPI:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Command execution failed: {str(e)}",
             )
+
+    @app.post("/update")
+    async def trigger_update(token: str = Depends(verify_token)):
+        """Manually trigger update check and download if available"""
+        try:
+            latest_version = await check_for_updates()
+            if latest_version:
+                print(f"Manual update triggered: {CURRENT_VERSION} -> {latest_version}")
+                success = await download_and_replace_script(latest_version)
+                if success:
+                    return {
+                        "status": "updating",
+                        "from_version": CURRENT_VERSION,
+                        "to_version": latest_version,
+                    }
+                else:
+                    raise HTTPException(
+                        status_code=500, detail="Update download failed"
+                    )
+            else:
+                return {"status": "up_to_date", "current_version": CURRENT_VERSION}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
 
     return app
 
