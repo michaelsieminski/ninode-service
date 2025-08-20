@@ -61,11 +61,6 @@ def load_config(config_path: Optional[str] = None) -> Config:
 async def get_system_info() -> Dict[str, Any]:
     hostname = socket.gethostname()
 
-    try:
-        local_ip = socket.gethostbyname(hostname)
-    except socket.gaierror:
-        local_ip = "127.0.0.1"
-
     return {
         "status": "online",
         "version": CURRENT_VERSION,
@@ -77,7 +72,6 @@ async def get_system_info() -> Dict[str, Any]:
             "machine": platform.machine(),
             "processor": platform.processor(),
         },
-        "ip_address": local_ip,
     }
 
 
@@ -119,7 +113,7 @@ async def register_with_server(config: Config) -> bool:
 
 
 # Auto-update functionality
-CURRENT_VERSION = "0.1.2"
+CURRENT_VERSION = "0.1.3"
 UPDATE_CHECK_INTERVAL = 24 * 3600  # 24 hours in seconds
 
 
@@ -294,35 +288,104 @@ def create_app(config: Config) -> FastAPI:
         try:
             metrics = {}
 
+            # Memory metrics
             if shutil.which("free"):
                 result = subprocess.run(
                     ["free", "-m"], capture_output=True, text=True, timeout=5
                 )
                 if result.returncode == 0:
-                    metrics["memory"] = result.stdout
+                    lines = result.stdout.strip().split("\n")
+                    if len(lines) >= 2:
+                        mem_line = lines[1].split()
+                        if len(mem_line) >= 7:
+                            total_mb = int(mem_line[1])
+                            used_mb = int(mem_line[2])
+                            free_mb = int(mem_line[3])
+                            available_mb = (
+                                int(mem_line[6]) if len(mem_line) > 6 else free_mb
+                            )
 
+                            metrics["memory"] = {
+                                "total_gb": round(total_mb / 1024, 2),
+                                "used_gb": round(used_mb / 1024, 2),
+                                "free_gb": round(free_mb / 1024, 2),
+                                "available_gb": round(available_mb / 1024, 2),
+                                "usage_percent": round((used_mb / total_mb) * 100, 1),
+                            }
+
+            # Disk metrics
             if shutil.which("df"):
                 result = subprocess.run(
                     ["df", "-h"], capture_output=True, text=True, timeout=5
                 )
                 if result.returncode == 0:
-                    metrics["disk"] = result.stdout
+                    lines = result.stdout.strip().split("\n")[1:]  # Skip header
+                    disks = []
+                    for line in lines:
+                        parts = line.split()
+                        if len(parts) >= 6 and not parts[0].startswith("tmpfs"):
+                            filesystem = parts[0]
+                            size = parts[1]
+                            used = parts[2]
+                            available = parts[3]
+                            usage_percent = parts[4].rstrip("%")
+                            mount_point = parts[5]
 
+                            disks.append(
+                                {
+                                    "filesystem": filesystem,
+                                    "mount_point": mount_point,
+                                    "size": size,
+                                    "used": used,
+                                    "available": available,
+                                    "usage_percent": int(usage_percent)
+                                    if usage_percent.isdigit()
+                                    else 0,
+                                }
+                            )
+
+                    metrics["disk"] = disks
+
+            # System uptime and load
+            uptime_info = {}
             if shutil.which("uptime"):
                 result = subprocess.run(
                     ["uptime"], capture_output=True, text=True, timeout=5
                 )
                 if result.returncode == 0:
-                    metrics["uptime"] = result.stdout.strip()
+                    uptime_str = result.stdout.strip()
+                    # Extract uptime duration
+                    if "up" in uptime_str:
+                        uptime_part = uptime_str.split("up")[1].split(",")[0].strip()
+                        uptime_info["uptime"] = uptime_part
+
+                    # Extract load averages
+                    if "load average:" in uptime_str:
+                        load_part = uptime_str.split("load average:")[1].strip()
+                        load_values = [float(x.strip()) for x in load_part.split(",")]
+                        uptime_info["load_average"] = {
+                            "1min": load_values[0] if len(load_values) > 0 else 0,
+                            "5min": load_values[1] if len(load_values) > 1 else 0,
+                            "15min": load_values[2] if len(load_values) > 2 else 0,
+                        }
 
             if platform.system() == "Linux":
                 try:
                     with open("/proc/loadavg", "r") as f:
-                        metrics["load_average"] = f.read().strip()
+                        load_data = f.read().strip().split()
+                        if len(load_data) >= 3:
+                            uptime_info["load_average"] = {
+                                "1min": float(load_data[0]),
+                                "5min": float(load_data[1]),
+                                "15min": float(load_data[2]),
+                            }
                 except FileNotFoundError:
                     pass
 
-            return {"metrics": metrics}
+            if uptime_info:
+                metrics["system"] = uptime_info
+
+            return metrics
 
         except Exception as e:
             raise HTTPException(
