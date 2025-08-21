@@ -113,7 +113,7 @@ async def register_with_server(config: Config) -> bool:
 
 
 # Auto-update functionality
-CURRENT_VERSION = "0.1.4"
+CURRENT_VERSION = "0.1.5"
 UPDATE_CHECK_INTERVAL = 24 * 3600  # 24 hours in seconds
 
 
@@ -135,38 +135,93 @@ async def check_for_updates() -> Optional[str]:
 
 
 async def download_and_replace_script(version: str) -> bool:
-    """Download new version and replace current script"""
+    """Download new version and replace current script and MCP server"""
     try:
         script_path = os.path.abspath(__file__)
-        backup_path = f"{script_path}.backup"
+        script_dir = os.path.dirname(script_path)
+        mcp_path = os.path.join(script_dir, "mcp_server.py")
 
-        # Download new version
+        backup_script_path = f"{script_path}.backup"
+        backup_mcp_path = f"{mcp_path}.backup"
+
         async with httpx.AsyncClient(timeout=30.0) as client:
+            # Download main service
             response = await client.get(
                 f"https://raw.githubusercontent.com/michaelsieminski/ninode-service/{version}/ninode-service.py"
             )
-            if response.status_code == 200:
-                # Create backup
-                shutil.copy2(script_path, backup_path)
+            if response.status_code != 200:
+                print(f"Failed to download ninode-service.py: {response.status_code}")
+                return False
 
-                # Write new version
-                with open(script_path, "w") as f:
-                    f.write(response.text)
+            service_content = response.text
 
-                # Make executable
-                os.chmod(script_path, 0o755)
+            # Download MCP server
+            mcp_response = await client.get(
+                f"https://raw.githubusercontent.com/michaelsieminski/ninode-service/{version}/mcp_server.py"
+            )
+            if mcp_response.status_code != 200:
+                print(f"Failed to download mcp_server.py: {mcp_response.status_code}")
+                return False
 
-                print(f"Updated to version {version}. Restarting...")
+            mcp_content = mcp_response.text
 
-                # Schedule restart after response is sent
-                asyncio.create_task(restart_service_delayed())
-                return True
+            # Create backups
+            shutil.copy2(script_path, backup_script_path)
+            if os.path.exists(mcp_path):
+                shutil.copy2(mcp_path, backup_mcp_path)
+
+            # Write new versions
+            with open(script_path, "w") as f:
+                f.write(service_content)
+
+            with open(mcp_path, "w") as f:
+                f.write(mcp_content)
+
+            # Make executable
+            os.chmod(script_path, 0o755)
+            os.chmod(mcp_path, 0o755)
+
+            # Update dependencies if virtual environment exists
+            venv_pip = os.path.join(script_dir, "venv", "bin", "pip")
+            if os.path.exists(venv_pip):
+                try:
+                    print("Updating Python dependencies...")
+                    subprocess.run(
+                        [
+                            venv_pip,
+                            "install",
+                            "--upgrade",
+                            "fastapi",
+                            "uvicorn",
+                            "psutil",
+                            "httpx",
+                            "pydantic",
+                            "mcp",
+                        ],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    print("Dependencies updated successfully")
+                except subprocess.CalledProcessError as e:
+                    print(f"Warning: Failed to update dependencies: {e}")
+                    # Continue anyway, as the core files are updated
+
+            print(
+                f"Updated ninode-service and MCP server to version {version}. Restarting..."
+            )
+
+            # Schedule restart after response is sent
+            asyncio.create_task(restart_service_delayed())
+            return True
+
     except Exception as e:
         print(f"Update failed: {e}")
-        # Restore backup if it exists
-        backup_path = f"{os.path.abspath(__file__)}.backup"
-        if os.path.exists(backup_path):
-            shutil.copy2(backup_path, os.path.abspath(__file__))
+        # Restore backups if they exist
+        if os.path.exists(backup_script_path):
+            shutil.copy2(backup_script_path, script_path)
+        if os.path.exists(backup_mcp_path):
+            shutil.copy2(backup_mcp_path, mcp_path)
     return False
 
 
