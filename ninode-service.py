@@ -143,7 +143,7 @@ async def download_and_replace_script(version: str) -> bool:
         # Download new version
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
-                f"https://raw.githubusercontent.com/michaelsieminski/ninode-service/v{version}/ninode-service.py"
+                f"https://raw.githubusercontent.com/michaelsieminski/ninode-service/{version}/ninode-service.py"
             )
             if response.status_code == 200:
                 # Create backup
