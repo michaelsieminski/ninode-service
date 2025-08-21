@@ -1,0 +1,8 @@
+{
+  "api_key": "your-ninode-api-key-here",
+  "server_url": "https://app.ninode.com",
+  "port": 6969,
+  "host": "0.0.0.0",
+  "update_interval_hours": 24,
+  "enable_auto_update": true
+}

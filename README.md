@@ -1,6 +1,6 @@
 # Ninode Service
 
-![Version](https://img.shields.io/badge/version-0.1.3-blue) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.8+-blue.svg) ![FastAPI](https://img.shields.io/badge/FastAPI-latest-green.svg)
+![Version](https://img.shields.io/badge/version-0.1.4-blue) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.8+-blue.svg) ![FastAPI](https://img.shields.io/badge/FastAPI-latest-green.svg)
 
 **Ninode Service** is a lightweight FastAPI-based agent that runs on your VPS servers, enabling secure communication with the Ninode web application for automated server management and monitoring.
 
@@ -23,7 +23,6 @@ curl -sSL https://app.ninode.com/install.sh | bash -s -- YOUR_API_KEY
 - **Automatic Registration**: Registers with Ninode web app on startup
 - **Auto-Update**: Automatically updates to latest version from GitHub
 - **System Monitoring**: CPU, memory, disk metrics
-- **Safe Command Execution**: Only allows read-only system commands
 - **Multi-Platform**: Supports major Linux distributions
 
 ## Configuration

@@ -113,7 +113,7 @@ async def register_with_server(config: Config) -> bool:
 
 
 # Auto-update functionality
-CURRENT_VERSION = "0.1.3"
+CURRENT_VERSION = "0.1.4"
 UPDATE_CHECK_INTERVAL = 24 * 3600  # 24 hours in seconds
 
 
