@@ -58,37 +58,110 @@ def load_config(config_path: Optional[str] = None) -> Config:
 
 
 # Registration
-async def get_system_info() -> Dict[str, Any]:
+def get_simple_platform_info() -> Dict[str, str]:
+    """Get simplified platform information that's easy to understand."""
+    system = platform.system()
+
+    # Get machine architecture in simple terms
+    machine = platform.machine().lower()
+    if machine in ["x86_64", "amd64"]:
+        machine = "amd64"
+    elif machine in ["aarch64", "arm64"]:
+        machine = "arm64"
+    elif machine.startswith("arm"):
+        machine = "arm"
+    else:
+        machine = machine or "unknown"
+
+    if system == "Linux":
+        try:
+            # Read /etc/os-release for Linux distribution info
+            with open("/etc/os-release", "r") as f:
+                os_release = {}
+                for line in f:
+                    if "=" in line:
+                        key, value = line.strip().split("=", 1)
+                        os_release[key] = value.strip('"')
+
+            distro_name = os_release.get("PRETTY_NAME", "")
+            distro_id = os_release.get("ID", "").lower()
+            distro_version = os_release.get("VERSION_ID", "")
+
+            # Map common distributions to simple names
+            if "ubuntu" in distro_id:
+                system = "Ubuntu"
+                version = distro_version
+            elif "debian" in distro_id:
+                system = "Debian"
+                version = distro_version
+            elif "centos" in distro_id or "rhel" in distro_id:
+                system = "CentOS/RHEL"
+                version = distro_version
+            elif "fedora" in distro_id:
+                system = "Fedora"
+                version = distro_version
+            elif "alpine" in distro_id:
+                system = "Alpine"
+                version = distro_version
+            else:
+                # Try to extract a readable name from PRETTY_NAME
+                if distro_name:
+                    system = distro_name.split()[0] if distro_name.split() else "Linux"
+                    version = distro_version
+                else:
+                    system = "Linux"
+                    version = distro_version
+
+        except (FileNotFoundError, IOError, KeyError):
+            # Fallback to basic platform info
+            system = "Linux"
+            version = platform.release()
+
+    elif system == "Darwin":
+        system = "macOS"
+        version = platform.mac_ver()[0]  # Get macOS version like "14.0"
+
+    elif system == "Windows":
+        system = "Windows"
+        version = platform.version()
+
+    else:
+        # Keep original for other systems
+        version = platform.release()
+
+    return {
+        "system": system,
+        "version": version,
+        "machine": machine,
+    }
+
+
+async def get_ping_data() -> Dict[str, Any]:
     hostname = socket.gethostname()
+    platform_info = get_simple_platform_info()
 
     return {
         "status": "online",
         "version": CURRENT_VERSION,
         "hostname": hostname,
-        "platform": {
-            "system": platform.system(),
-            "release": platform.release(),
-            "version": platform.version(),
-            "machine": platform.machine(),
-            "processor": platform.processor(),
-        },
+        "platform": platform_info,
     }
 
 
-async def register_with_server(config: Config) -> bool:
-    system_info = await get_system_info()
+async def ping_server(config: Config) -> bool:
+    system_info = await get_ping_data()
 
     headers = {
         "Authorization": f"Bearer {config.api_key}",
         "Content-Type": "application/json",
     }
 
-    registration_url = f"{config.server_url.rstrip('/')}/api/v1/service/register"
+    ping_url = f"{config.server_url.rstrip('/')}/api/v1/service/ping"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             response = await client.post(
-                registration_url,
+                ping_url,
                 headers=headers,
                 json=system_info,
             )
@@ -97,24 +170,25 @@ async def register_with_server(config: Config) -> bool:
                 return True
             else:
                 print(
-                    f"Registration failed with status {response.status_code}: {response.text}"
+                    f"Ping failed with status {response.status_code}: {response.text}"
                 )
                 return False
 
         except httpx.TimeoutException:
-            print("Registration timed out")
+            print("Ping timed out")
             return False
         except httpx.RequestError as e:
-            print(f"Registration request failed: {e}")
+            print(f"Ping request failed: {e}")
             return False
         except Exception as e:
-            print(f"Unexpected error during registration: {e}")
+            print(f"Unexpected error during ping: {e}")
             return False
 
 
 # Auto-update functionality
-CURRENT_VERSION = "0.1.5"
+CURRENT_VERSION = "0.1.6"
 UPDATE_CHECK_INTERVAL = 24 * 3600  # 24 hours in seconds
+PING_INTERVAL = 10  # 10 seconds between ping calls
 
 
 async def check_for_updates() -> Optional[str]:
@@ -254,6 +328,20 @@ async def auto_update_task(config: Config):
             print(f"Auto-update task error: {e}")
 
 
+async def ping_task(config: Config):
+    """Background task to ping the server every 10 seconds"""
+    print(f"Starting ping task: pinging every {PING_INTERVAL} seconds")
+
+    while True:
+        try:
+            await asyncio.sleep(PING_INTERVAL)
+            success = await ping_server(config)
+            if not success:
+                print("Ping failed - server may be unreachable")
+        except Exception as e:
+            print(f"Ping task error: {e}")
+
+
 # FastAPI Models
 class CommandRequest(BaseModel):
     command: str
@@ -294,19 +382,22 @@ def create_app(config: Config) -> FastAPI:
     async def lifespan(app: FastAPI):
         # Startup
         print("Starting Ninode Service Agent...")
-        success = await register_with_server(config)
-        if success:
-            print("Successfully registered with Ninode application")
-        else:
-            print("Failed to register with Ninode application")
+
+        # Start ping task
+        ping_bg_task = asyncio.create_task(ping_task(config))
 
         # Start auto-update task
         update_task = asyncio.create_task(auto_update_task(config))
 
         yield
 
-        # Shutdown - cancel auto-update task
+        # Shutdown - cancel background tasks
+        ping_bg_task.cancel()
         update_task.cancel()
+        try:
+            await ping_bg_task
+        except asyncio.CancelledError:
+            pass
         try:
             await update_task
         except asyncio.CancelledError:
@@ -336,7 +427,7 @@ def create_app(config: Config) -> FastAPI:
 
     @app.get("/status")
     async def get_status(token: str = Depends(verify_token)):
-        return await get_system_info()
+        return await get_ping_data()
 
     @app.get("/metrics")
     async def get_metrics(token: str = Depends(verify_token)):
