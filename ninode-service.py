@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+import psutil
 import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, status
@@ -136,15 +137,55 @@ def get_simple_platform_info() -> Dict[str, str]:
     }
 
 
+async def get_system_metrics() -> Dict[str, Any]:
+    """Collect system metrics for CPU, memory, and disk usage"""
+    try:
+        # CPU usage (percentage)
+        cpu_usage_percent = psutil.cpu_percent(interval=1)
+
+        # Memory metrics (bytes)
+        memory = psutil.virtual_memory()
+        memory_used_bytes = memory.used
+        memory_total_bytes = memory.total
+
+        # Disk metrics (bytes) - using root filesystem as primary
+        disk = psutil.disk_usage("/")
+        disk_used_bytes = disk.used
+        disk_total_bytes = disk.total
+
+        return {
+            "cpu_usage_percent": round(cpu_usage_percent, 1),
+            "memory_used_bytes": memory_used_bytes,
+            "memory_total_bytes": memory_total_bytes,
+            "disk_used_bytes": disk_used_bytes,
+            "disk_total_bytes": disk_total_bytes,
+        }
+
+    except Exception as e:
+        print(f"Failed to collect system metrics: {e}")
+        # Return fallback values if metrics collection fails
+        return {
+            "cpu_usage_percent": 0.0,
+            "memory_used_bytes": 0,
+            "memory_total_bytes": 0,
+            "disk_used_bytes": 0,
+            "disk_total_bytes": 0,
+        }
+
+
 async def get_ping_data() -> Dict[str, Any]:
     hostname = socket.gethostname()
     platform_info = get_simple_platform_info()
+
+    # Get system metrics
+    metrics = await get_system_metrics()
 
     return {
         "status": "online",
         "version": CURRENT_VERSION,
         "hostname": hostname,
         "platform": platform_info,
+        "metrics": metrics,
     }
 
 
@@ -186,7 +227,7 @@ async def ping_server(config: Config) -> bool:
 
 
 # Auto-update functionality
-CURRENT_VERSION = "0.1.6"
+CURRENT_VERSION = "0.1.7"
 UPDATE_CHECK_INTERVAL = 24 * 3600  # 24 hours in seconds
 PING_INTERVAL = 10  # 10 seconds between ping calls
 
